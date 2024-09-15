@@ -1,4 +1,9 @@
-#include<string.h>
+#include <string.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+
+#define MAX_INPUT 1024
 
 /**
  * @brief Tokenize a C string 
@@ -17,6 +22,75 @@ void tokenize(char* str, const char* delim, char ** argv){
   }
 }
 
-int main(int argc, char *argv[]){
-  return 0;
+/*void welcomeBanner() {
+	const char *welcomeArt = "\n"
+"
+"                                           .___,                                                               \n"
+" __      __     _                        _          ___                                                    \n"
+" \\ \\    / /___ | | __  ___  _ __   ___  | |_  ___  |   \\  _ _  __ _  __ _  ___  _ _                     \n"
+"  \\ \\/\\/ // -_)| |/ _|/ _ \\| '  \\ / -_) |  _|/ _ \\ | |) || '_|/ _` |/ _` |/ _ \\| ' \\               \n"
+"   \\_/\\_/ \\___||_|\\__|\\___/|_|_|_|\\___|  \\__|\\___/ |___/ |_|  \\__,_|\\__, |\\___/|_||_|           \n"
+"                                                                    |___/                                  \n";
+
+	printf("%s", welcomeArt);
+}*/
+
+int main(int argc, char *argv[]) {
+	//welcomeBanner();
+
+	// Read the users command
+	char input[MAX_INPUT];
+	do {
+		printf("dragonshell > ");
+		fgets(input, sizeof(input), stdin);
+		// Ask again if no command was inputted
+		if (input[1] == '\0')
+			continue;
+		// Remove the trailing '\n'
+		for (int i = 2; i < sizeof(input); i++) {
+			if (input[i] == '\0') {
+                        	input[i-1] = '\0';
+				break;
+			}
+		}
+		
+		// Split the command separated by spaces
+		char *commandArgs[MAX_INPUT];
+		tokenize(input, " ", commandArgs);
+
+		// Command: pwd
+		if (strcmp(commandArgs[0], "pwd") == 0) {
+			char cwd[1024];
+			if (getcwd(cwd, sizeof(cwd)) != NULL) {
+				printf("%s\n", cwd);
+			} else {
+				perror("getcwd() error\n");
+			}
+		
+		// Command: cd
+		} else if (strcmp(commandArgs[0], "cd") == 0) {
+			// something with commandArgs[1]
+		} else {
+			printf("Invalid command\n");
+		}
+	} while (strcmp(input, "exit") != 0);
+	
+	return 0;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
