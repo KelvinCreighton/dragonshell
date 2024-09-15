@@ -4,6 +4,7 @@
 #include <stdlib.h>
 
 #define MAX_INPUT 1024
+#define MAX_PATH 1024
 
 /**
  * @brief Tokenize a C string 
@@ -60,16 +61,30 @@ int main(int argc, char *argv[]) {
 
 		// Command: pwd
 		if (strcmp(commandArgs[0], "pwd") == 0) {
-			char cwd[1024];
+			char cwd[MAX_PATH];
 			if (getcwd(cwd, sizeof(cwd)) != NULL) {
 				printf("%s\n", cwd);
 			} else {
-				perror("getcwd() error\n");
+				printf("dragonshell: getcwd() error\n");
 			}
 		
 		// Command: cd
 		} else if (strcmp(commandArgs[0], "cd") == 0) {
-			// something with commandArgs[1]
+			// ADD CHECK HERE FOR NO GIVEN DIRECTORY
+
+			char cwd[MAX_PATH];
+			if (getcwd(cwd, sizeof(cwd)) == NULL) {
+				printf("dragonshell: getcwd() error\n");
+				continue;
+			}
+
+			char newPath[MAX_PATH];
+			char *separator = "/";
+			snprintf(newPath, sizeof(newPath), "%s%s%s", cwd, separator, commandArgs[1]);
+			if (chdir(newPath) == -1) {
+				printf("dragonshell: No such file or directory\n");
+				printf("%s\n", strcat(cwd, commandArgs[1]));
+			}
 		} else {
 			printf("Invalid command\n");
 		}
