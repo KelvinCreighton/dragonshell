@@ -70,8 +70,10 @@ int main(int argc, char *argv[]) {
 		
 		// Command: cd
 		} else if (strcmp(commandArgs[0], "cd") == 0) {
-			// ADD CHECK HERE FOR NO GIVEN DIRECTORY
-
+			if (commandArgs[1] == NULL) {
+				printf("dragonshell: No directory given");
+				continue;
+			}
 			char cwd[MAX_PATH];
 			if (getcwd(cwd, sizeof(cwd)) == NULL) {
 				printf("dragonshell: getcwd() error\n");
@@ -83,7 +85,6 @@ int main(int argc, char *argv[]) {
 			snprintf(newPath, sizeof(newPath), "%s%s%s", cwd, separator, commandArgs[1]);
 			if (chdir(newPath) == -1) {
 				printf("dragonshell: No such file or directory\n");
-				printf("%s\n", strcat(cwd, commandArgs[1]));
 			}
 		} else {
 			printf("Invalid command\n");
