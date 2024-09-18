@@ -3,10 +3,10 @@ CFLAGS = -Wall -g
 TARGET = dragonshell
 
 $(TARGET): dragonshell.c
-	clear
 	$(CC) $(CFLAGS) -o $(TARGET) dragonshell.c 
 
 run: $(TARGET)
+	clear
 	./$(TARGET)
 
 clean:

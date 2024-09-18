@@ -38,127 +38,158 @@ void tokenize(char* str, const char* delim, char ** argv){
 	printf("%s", welcomeArt);
 }*/
 
-char *pwd() {
+char *pwd(int *success) {
 	// Allocate space for the current working directory path
 	char *cwd = malloc(MAX_PATH);
 	// Check if the allocation had an error
 	if (cwd == NULL) {
-		printf("dragonshell: memory allocation error\n");
-		return NULL;
+		*success = 0;
+		return "dragonshell: memory allocation error";
 	}
 	
 	// Get the current working directory and check if was successful or not
 	if (getcwd(cwd, MAX_PATH) == NULL) {
-		printf("dragonshell: getcwd() error\n");
 		free(cwd);
-		return NULL;
+		*success = 0;
+		return "dragonshell: getcwd() error";
 	}
+
+	*success = 1;
 	return cwd;
 }
 
-int cd(char **commandArgs) {
+char *cd(char **commandArgs, int *success) {
 	// Check if the user inputted a second argument for the new path, return if the didn't
 	if (commandArgs[1] == NULL) {
-		printf("dragonshell: No directory given");
-		return 1;
+		*success = 0;
+		return "dragonshell: No directory given";
 	}
 
 	// Get the current working directory
-	char *cwd = pwd();
-	if (cwd == NULL)
-		return 1;
+	int pwdSuccess;
+	char *cwd = pwd(&pwdSuccess);
+	if (!pwdSuccess) {
+		*success = 0;
+		return cwd;	// MEMORY LEAK HERE????
+	}
 	
 	// Combine the current working directory with the users second argument as one full newPath
 	char newPath[MAX_PATH];
 	char *separator = "/";
 	snprintf(newPath, sizeof(newPath), "%s%s%s", cwd, separator, commandArgs[1]);
 
+	if (newPath == NULL) {
+		free(cwd);
+		*success = 0;
+		return "dragonshell: Error when creating new path";
+	}
+	free(cwd);
+
 	// Move into that directory and give an error if it was unsuccessful
 	if (chdir(newPath) == -1) {
-		printf("dragonshell: No such file or directory\n");
-		return 1;
+		*success = 0;
+		return "dragonshell: No such file or directory";
 	}
 	
-	return 0;
+	*success = 1;
+	return NULL;
 }
 
-int runExternalProgram(char **commandArgs) {
+char *runExternalProgram(char **commandArgs, int asBackground, int *success) {
 	// Fork the given process
 	pid_t pid;
 	pid = fork();
 
-	if (pid < 0) {
-		// fork failed
-		printf("dragonshell: fork() failed\n");
-		return 1;
-	} else if (pid == 0) {
+	if (pid == 0) {
 		// Child process: run the external program
-		char *envp[] = {NULL};
-		if (execve(commandArgs[0], commandArgs, envp) == -1) {
-			printf("dragonshell: exeve() failed\n");
-			return 1;
+		if (execve(commandArgs[0], commandArgs, NULL) == -1) {
+			_exit(1);	// Prevent zombie processes
+			*success = 0;
+			return "dragonshell: Command not found";
 		}
-		printf("child process\n");
+	} else if (pid > 0) {
+		// Parent process
+		
+		if (asBackground == 0) {	// Run the child process in the background
+			printf("dragonshell: running process in background with PID %d\n", pid);
+		} else {	// Wait for the child process to finish
+			int status;
+			waitpid(pid, &status, 0);
+		}
 	} else {
-		// Parent process: wait for the child to finish
-		int status;
-		waitpid(pid, &status, 0);
-		printf("parent process, child process finished\n");
+		// fork failed
+		*success = 0;
+		return "dragonshell: fork() failed";
 	}
 
-	return 0;
+	*success = 1;
+	return NULL;
 }
 
 int main(int argc, char *argv[]) {
 	//welcomeBanner();
-
-	// Read the users command
+	
 	int inShell = 1;
-	char input[MAX_INPUT];
 	while (inShell) {
 		printf("dragonshell > ");
-		fgets(input, sizeof(input), stdin);
-		// Ask again if no command was inputted
-		if (input[1] == '\0')
+		
+		// Read user command
+		char *input = (char *)malloc(MAX_INPUT);
+		fgets(input, MAX_INPUT, stdin);
+		
+		// Skip if the user didn't input anything
+		if (input[1] == '\0') {
+			free(input);
 			continue;
-		// Remove the trailing '\n'
-		for (int i = 2; i < sizeof(input); i++) {
-			if (input[i] == '\0') {
-                        	input[i-1] = '\0';
-				break;
-			}
 		}
+		// Remove the trailing '\n'
+		input[strlen(input)-1] = '\0';
 		
 		// Split the command separated by spaces
-		char *commandArgs[MAX_INPUT];
+		char **commandArgs = (char **)calloc(MAX_INPUT, sizeof(char *));
 		tokenize(input, " ", commandArgs);
+		// Get the total number of command arguments
+		int totalCommandArgs = 1;
+		while (commandArgs[totalCommandArgs] != NULL) {
+			totalCommandArgs++;
+		}
 
 		// Command: pwd
 		if (strcmp(commandArgs[0], "pwd") == 0) {
-			char *cwd = pwd();	
-			if (cwd != NULL) {
-				printf("%s\n", cwd);
-				free(cwd);
-			}
+			int success;
+			char *cwd = pwd(&success);	
+			printf("%s\n", cwd);
+			free(cwd);
 
 		// Command: cd
 		} else if (strcmp(commandArgs[0], "cd") == 0) {
-			cd(commandArgs);
+			int success;
+			char *outStr = cd(commandArgs, &success);
+			if (!success) {
+				printf("%s\n", outStr);
+			}
 
 		// Command: exit
-		} else if(strcmp(commandArgs[0], "exit") == 0) {
+		} else if (strcmp(commandArgs[0], "exit") == 0) {
 			inShell = 0;	// Exit the loop
 		
 		// If no command was inputted then run an external program
 		} else {
-			runExternalProgram(commandArgs);
+			int success;
+			int runInBackground = strcmp(commandArgs[totalCommandArgs-1], "&");
+			char *outStr = runExternalProgram(commandArgs, runInBackground, &success);
+			if (!success) {
+				printf("%s\n", outStr);
+			}
 		}
+
+		
+		free(input);
+		free(commandArgs);
 	}
 	
 	return 0;
 }
-
-
 
 
 
@@ -181,3 +212,7 @@ int main(int argc, char *argv[]) {
 //
 //
 // ask if we need the -Wextra flag to be clear for full marks
+//
+//
+// HANDLE SIGNALS: you need to handle ctrl+c and ctrl+z
+
