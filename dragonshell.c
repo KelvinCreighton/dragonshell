@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 
 #define MAX_INPUT 1024
 #define MAX_PATH 1024
@@ -44,25 +45,25 @@ char *pwd(int *success) {
 	// Check if the allocation had an error
 	if (cwd == NULL) {
 		*success = 0;
-		return "dragonshell: memory allocation error";
+		return "dragonshell: memory allocation error\n";
 	}
 	
 	// Get the current working directory and check if was successful or not
 	if (getcwd(cwd, MAX_PATH) == NULL) {
 		free(cwd);
 		*success = 0;
-		return "dragonshell: getcwd() error";
+		return "dragonshell: getcwd() error\n";
 	}
 
 	*success = 1;
-	return cwd;
+	return strcat(cwd, "\n");
 }
 
 char *cd(char **commandArgs, int *success) {
 	// Check if the user inputted a second argument for the new path, return if the didn't
 	if (commandArgs[1] == NULL) {
 		*success = 0;
-		return "dragonshell: No directory given";
+		return "dragonshell: No directory given\n";
 	}
 
 	// Get the current working directory
@@ -81,14 +82,14 @@ char *cd(char **commandArgs, int *success) {
 	if (newPath == NULL) {
 		free(cwd);
 		*success = 0;
-		return "dragonshell: Error when creating new path";
+		return "dragonshell: Error when creating new path\n";
 	}
 	free(cwd);
 
 	// Move into that directory and give an error if it was unsuccessful
 	if (chdir(newPath) == -1) {
 		*success = 0;
-		return "dragonshell: No such file or directory";
+		return "dragonshell: No such file or directory\n";
 	}
 	
 	*success = 1;
@@ -105,7 +106,7 @@ char *runExternalProgram(char **commandArgs, int asBackground, int *success) {
 		if (execve(commandArgs[0], commandArgs, NULL) == -1) {
 			_exit(1);	// Prevent zombie processes
 			*success = 0;
-			return "dragonshell: Command not found";
+			return "dragonshell: Command not found\n";
 		}
 	} else if (pid > 0) {
 		// Parent process
@@ -119,11 +120,28 @@ char *runExternalProgram(char **commandArgs, int asBackground, int *success) {
 	} else {
 		// fork failed
 		*success = 0;
-		return "dragonshell: fork() failed";
+		return "dragonshell: fork() failed\n";
 	}
 
 	*success = 1;
 	return NULL;
+}
+
+int outputToFile(char *message, char *file) {
+	int fd = open(file, O_WRONLY | O_CREAT | O_TRUNC, 00644);
+	if (fd == -1) {
+		printf("dragonshell: Error in opening file\n");
+		return 1;
+	}
+
+	if (write(fd, message, strlen(message)) == -1) {
+		printf("dragonshell: Error writing to file\n");
+		close(fd);
+		return 1;
+	}
+	
+	close(fd);
+	return 0;
 }
 
 int main(int argc, char *argv[]) {
@@ -153,12 +171,31 @@ int main(int argc, char *argv[]) {
 		while (commandArgs[totalCommandArgs] != NULL) {
 			totalCommandArgs++;
 		}
+		
+		// Check if the command is outputted to a file
+		char *outputFile = NULL;
+		if (totalCommandArgs > 1) {
+			// If the user did not input a file name after requesting to output to a file
+			if (strcmp(commandArgs[totalCommandArgs-1], ">") == 0) {
+				printf("dragonshell: No output file given\n");
+				free(input);
+				free(commandArgs);
+				continue;
+			}
+			if (strcmp(commandArgs[totalCommandArgs-2], ">") == 0) {
+				outputFile = commandArgs[totalCommandArgs-1];
+			}
+		}
 
 		// Command: pwd
 		if (strcmp(commandArgs[0], "pwd") == 0) {
 			int success;
-			char *cwd = pwd(&success);	
-			printf("%s\n", cwd);
+			char *cwd = pwd(&success);
+			if (outputFile == NULL) {
+				printf("%s", cwd);
+			} else {
+				outputToFile(cwd, outputFile);
+			}
 			free(cwd);
 
 		// Command: cd
@@ -166,7 +203,11 @@ int main(int argc, char *argv[]) {
 			int success;
 			char *outStr = cd(commandArgs, &success);
 			if (!success) {
-				printf("%s\n", outStr);
+				if (outputFile == NULL) {
+					printf("%s", outStr);
+				} else {
+					outputToFile(outStr, outputFile);
+				}
 			}
 
 		// Command: exit
@@ -179,11 +220,14 @@ int main(int argc, char *argv[]) {
 			int runInBackground = strcmp(commandArgs[totalCommandArgs-1], "&");
 			char *outStr = runExternalProgram(commandArgs, runInBackground, &success);
 			if (!success) {
-				printf("%s\n", outStr);
+				if (outputFile == NULL) {
+					printf("%s", outStr);
+				} else {
+					outputToFile(outStr, outputFile);
+				}
 			}
 		}
 
-		
 		free(input);
 		free(commandArgs);
 	}
@@ -208,11 +252,12 @@ int main(int argc, char *argv[]) {
 //
 // when parent process is waiting for child process does it have to check how it exited (normally vs by signal)
 //
-// when passing arguments to the child process do i start from the name of the process itself or skip that (ie: a.out, arg1, arg2,... or skip it as just arg1, arg2,...
-//
-//
 // ask if we need the -Wextra flag to be clear for full marks
 //
 //
 // HANDLE SIGNALS: you need to handle ctrl+c and ctrl+z
-
+//
+//
+// make background procesess only a total of 1
+//
+// do we have to check for both input and output ( ie.  <  and  >  )
