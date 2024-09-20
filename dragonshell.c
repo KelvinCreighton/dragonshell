@@ -305,13 +305,13 @@ int main(int argc, char *argv[]) {
 			int success;
 			int runInBackground = strcmp(commandArgs[totalCommandArgs-1], "&");
 			char *outStr = runExternalProgram(commandArgs, runInBackground, outputFile, &success);
-			/*if (!success) {
+			if (!success) {
 				if (outputFile == NULL) {
 					printf("%s", outStr);
 				} else {
 					outputToFile(outStr, outputFile);
 				}
-			}*/
+			}
 		}
 
 		free(input);
