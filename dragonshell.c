@@ -96,7 +96,7 @@ char *cd(char **commandArgs, int *success) {
 	return NULL;
 }
 
-char *runExternalProgram(char **commandArgs, int asBackground, char *outputFile, int *success) {
+char *runExternalProgram(char **commandArgs, int asBackground, int *backgroundPID, char *outputFile, int *success) {
 	pid_t pid = fork();
 
 	if (pid < 0) {	
@@ -128,16 +128,6 @@ char *runExternalProgram(char **commandArgs, int asBackground, char *outputFile,
 			*success = 0;
 			return "dragonshell: Command not found\n";
 		}
-
-		/*if (write(fd, message, strlen(message)) == -1) {
-			printf("dragonshell: Error writing to file\n");
-			close(fd);
-			return 1;
-		}
-	
-		close(fd);
-		return 0;
-		}*/
 	
 	// Parent process
 	} else if (pid > 0) {
@@ -159,46 +149,6 @@ char *runExternalProgram(char **commandArgs, int asBackground, char *outputFile,
 
 	*success = 1;
 	return NULL;
-
-
-	/*
-	// Fork the given process
-	pid_t pid;
-	pid = fork();
-
-	if (pid == 0) {
-		if (outputFile != NULL) {
-			int fd = open(outputFile, O_WRONLY | O_CREAT | O_TRUNC, 00644);
-			if (fd == -1) {
-				_exit(1);	// Prevent zombie processes
-				*success = 0;
-				return "dragonshell: Failed to open output file\n";
-			}
-			// Redirect stdout to the output file
-			if (dup2(fd, STDOUT_FILENO) == -1) {
-				_exit(1);	
-				close(fd);
-				*success = 0;
-				return "dragonshell: dup2() failed\n";
-			}
-			close(fd);
-		}
-		
-		// Child process: run the external program
-		if (execve(commandArgs[0], commandArgs, NULL) == -1) {
-			_exit(1);
-			*success = 0;
-			return "dragonshell: Command not found\n";
-		}
-	} else if (pid > 0) {
-		// Parent process		
-		
-	} else {
-	}
-
-	*success = 1;
-	return NULL;
-	*/
 }
 
 int outputToFile(char *message, char *file) {
@@ -242,37 +192,56 @@ int main(int argc, char *argv[]) {
 		tokenize(input, " ", commandArgs);	
 		
 		// Get the total number of command arguments (stops at NULL or >)
-		int totalCommandArgs = 1;
-		int outputToFileFlag = 0;
-		while (commandArgs[totalCommandArgs] != NULL) {
-			if (commandArgs[totalCommandArgs][0] == '>') {
-				outputToFileFlag = 1;
-				break;
-			}
-			totalCommandArgs++;
+		int totalCommandArgs = 0;
+		int outputFileIndex = 0;
+		int inputFileIndex = 0;
+		int i = 0;
+		while (commandArgs[i] != NULL) {
+			if (outputFileIndex == 0 && commandArgs[i][0] == '>')
+				outputFileIndex = i+1;
+			if (inputFileIndex == 0 && commandArgs[i][0] == '<')
+				inputFileIndex = i+1;
+			
+			if (outputFileIndex == 0 && inputFileIndex == 0)
+				totalCommandArgs++;
+			i++;
 		}
 
 		// Check if the command is outputted to a file
 		char *outputFile = NULL;
-		if (outputToFileFlag) {
-			if (commandArgs[totalCommandArgs+1] == NULL) {
-				printf("dragonshell: No ouptut file given\n");
+		if (outputFileIndex > 0) {
+			if (commandArgs[outputFileIndex] == NULL) {
+				printf("dragonshell: No output file given\n");
 				free(input);
 				free(commandArgs);
 				continue;
 			}
-			outputFile = commandArgs[totalCommandArgs+1];
+			outputFile = commandArgs[outputFileIndex];
+		}
 		
-			//Copy the data to a new array exluding the '>' and '<outputFile>' from the old commandArgs array
-			char **tmp_commandArgs = (char **)malloc(totalCommandArgs); 
+		// Check if the comand is taking input from a file
+		char *inputFile = NULL;
+		if (inputFileIndex > 0) {
+			if (commandArgs[inputFileIndex] == NULL) {
+				printf("dragonshell: No input file given\n");
+				free(input);
+				free(commandArgs);
+				continue;
+			}
+			inputFile = commandArgs[inputFileIndex];
+		}
+
+
+		//Copy the data to a new array exluding the '>', '<', and '<outputFile>' from the old commandArgs array
+		if (outputFileIndex > 0 || inputFileIndex > 0) {
+			char **tmp_commandArgs = (char **)malloc(totalCommandArgs);
 			for (int i = 0; i < totalCommandArgs; i++) {
 				tmp_commandArgs[i] = commandArgs[i];
 			}
 			free(commandArgs);
 			commandArgs = tmp_commandArgs;
 		}
-
-
+	
 		// Command: pwd
 		if (strcmp(commandArgs[0], "pwd") == 0) {
 			int success;
@@ -303,8 +272,9 @@ int main(int argc, char *argv[]) {
 		// If no command was inputted then run an external program
 		} else {
 			int success;
-			int runInBackground = strcmp(commandArgs[totalCommandArgs-1], "&");
-			char *outStr = runExternalProgram(commandArgs, runInBackground, outputFile, &success);
+			int runInBackground = 1;//strcmp(commandArgs[totalCommandArgs-1], "&");
+			int backgroundPID;
+			char *outStr = runExternalProgram(commandArgs, runInBackground, &backgroundPID, outputFile, &success);
 			if (!success) {
 				if (outputFile == NULL) {
 					printf("%s", outStr);
@@ -329,15 +299,10 @@ int main(int argc, char *argv[]) {
 
 
 
-
-
-
-
-
 // QUESTIONS FOR LAB
 //
 // when parent process is waiting for child process does it have to check how it exited (normally vs by signal)
-//
+// 
 // ask if we need the -Wextra flag to be clear for full marks
 //
 //
