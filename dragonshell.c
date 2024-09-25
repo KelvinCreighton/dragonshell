@@ -61,9 +61,11 @@ char *cd(char **commandArgs) {
 	return NULL;
 }
 
-char *runExternalProgram(char **commandArgs, char *inputFile, char *outputFile) {
-	pid_t pid = fork();
-	
+char *runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, int pipefd[2]) {
+	printf("pipefd %d %d\n", pipefd[0], pipefd[1]);
+	//return NULL;
+
+	pid_t pid = fork();	
 	// No process
 	if (pid < 0) {
 		return "dragonshell: fork() failed\n";
@@ -93,6 +95,17 @@ char *runExternalProgram(char **commandArgs, char *inputFile, char *outputFile) 
 			// Redirect stdout to fd of the output file
 			dup2(fd, STDOUT_FILENO);
 			close(fd);
+		}
+		
+		// If the read end is not -1 then the command is requested to pipe
+		if (pipefd[0] != -1) {
+			// If the write end is also not -1 then direct stdout to the write end
+			if (pipefd[1] != -1) {
+				dup2(pipefd[1], STDOUT_FILENO);
+			// If the write end is -1 then direct the read end to stdin
+			} else {
+				dup2(pipefd[0], STDIN_FILENO);
+			}
 		}
 		
 		// Execute the external program
@@ -135,27 +148,6 @@ int outputToFile(char *message, char *file) {
 	close(fd);
 	return 0;
 }
-
-/*char *readFromFile(char *file, int *messageLength) {
-	int fd = open(file, O_RDONLY);
-	if (fd == -1) {
-		printf("dragonshell: Error in opening file\n");
-		return NULL;
-	}
-	char *message = malloc(*messageLength);
-	size_t bytesRead;
-	while ( (bytesRead = read(fd, message, *messageLength-1)) > 0 ) {
-		message[bytesRead] = '\0';
-	}
-	close(fd);
-	if (bytesRead == -1) {
-		printf("dragonshell: Error reading the file\n");
-		return NULL;
-	}
-
-	return message;
-
-}*/
 
 int main(int argc, char *argv[]) {
 	//welcomeBanner();
@@ -288,14 +280,37 @@ int main(int argc, char *argv[]) {
 		} else {
 			//int runInBackground = 1;//strcmp(commandArgs[totalCommandArgs-1], "&");
 			//int backgroundPID;
-			//int *pipefd = NULL;
-			//if (pipedCommand != NULL)
-			//	pipe(pipefd);
-
-			char *outStr = runExternalProgram(commandArgs, inputFile, outputFile);
+			int pipefd[2] = {-1, -1};
+			if (pipedCommand != NULL)
+				pipe(pipefd);
+			// If both are non -1 then this is the flag to direct stdout to pipe
+			char *outStr = runExternalProgram(commandArgs, inputFile, outputFile, pipefd);
 			if (outStr != NULL) {
 				printf("%s", outStr);
 			}
+
+			if (pipedCommand != NULL) {
+				close(pipefd[1]);	// Close the write end
+
+				// If the first command failed then close the pipe and continue the loop
+				if (outStr != NULL) {
+					close(pipefd[0]);
+					printf("dragonshell: Pipe closed\n");
+					continue;
+				}
+
+				// If write is set to -1 but not read then this is the flag to direct pipe to stdin
+				pipefd[1] = -1;						// Flag the program to direct pipe to stdin
+				char *pipedCommandArgs[2] = {pipedCommand, NULL};	// Pass the piped command as a list of arguments only containing itself and null terminator
+				char *outStr = runExternalProgram(pipedCommandArgs, inputFile, outputFile, pipefd);
+				close(pipefd[0]);	// Close the read end
+				if (outStr != NULL) {
+					printf("%s", outStr);
+				}
+			}
+
+
+
 			/*if (!success) {
 				if (outputFile == NULL) {
 					printf("%s", outStr);
