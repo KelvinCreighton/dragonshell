@@ -96,7 +96,7 @@ char *cd(char **commandArgs, int *success) {
 	return NULL;
 }
 
-char *runExternalProgram(char **commandArgs, int asBackground, int *backgroundPID, char *outputFile, int *success) {
+char *runExternalProgram(char **commandArgs, int asBackground, int *backgroundPID, char *inputFile, char *outputFile, int *success) {
 	pid_t pid = fork();
 
 	if (pid < 0) {	
@@ -106,26 +106,45 @@ char *runExternalProgram(char **commandArgs, int asBackground, int *backgroundPI
 
 	// Child process
 	if (pid == 0) {
+		if (inputFile != NULL) {
+			int fd = open(inputFile, O_RDONLY);
+			if (fd == -1) {
+				*success = 0;
+				printf("dragonshell: Error in opening file\n");
+				_exit(1);
+				return "";
+			}
+			// Redirect fd from the input file to stdin
+			if (dup2(fd, STDIN_FILENO) == -1) {
+				close(fd);
+				*success = 0;
+				_exit(1);
+				return "dragonshell: dup2() failed for input file\n";
+			}
+			close(fd);
+		}
+
 		if (outputFile != NULL) {
 			int fd = open(outputFile, O_WRONLY | O_CREAT | O_TRUNC, 00644);
 			if (fd == -1) {
 				*success = 0;
+				_exit(1);
 				return "dragonshell: Error in opening file\n";
 			}
-			// Redirect stdout to the output file
+			// Redirect stdout to fd of the output file
 			if (dup2(fd, STDOUT_FILENO) == -1) {
 				close(fd);
 				*success = 0;
-				return "dragonshell: dup2() failed\n";
+				_exit(1);
+				return "dragonshell: dup2() failed for output file\n";
 			}
 			close(fd);
-
 		}
 		
 		// Execute the external program
 		if (execve(commandArgs[0], commandArgs, NULL) == -1) {
-			_exit(1);
 			*success = 0;
+			_exit(1);
 			return "dragonshell: Command not found\n";
 		}
 	
@@ -168,9 +187,36 @@ int outputToFile(char *message, char *file) {
 	return 0;
 }
 
+char *readFromFile(char *file, int *messageLength) {
+	int fd = open(file, O_RDONLY);
+	if (fd == -1) {
+		printf("dragonshell: Error in opening file\n");
+		return NULL;
+	}
+	char *message = malloc(*messageLength);
+	size_t bytesRead;
+	while ( (bytesRead = read(fd, message, *messageLength-1)) > 0 ) {
+		message[bytesRead] = '\0';
+	}
+	close(fd);
+	if (bytesRead == -1) {
+		printf("dragonshell: Error reading the file\n");
+		return NULL;
+	}
+
+	return message;
+
+}
+
 int main(int argc, char *argv[]) {
 	//welcomeBanner();
 	
+	//int messageLength = MAX_INPUT;
+	//printf("%s\n", readFromFile(argv[1], &messageLength));
+
+	//return 0;
+
+
 	int inShell = 1;
 	while (inShell) {
 		printf("dragonshell > ");
@@ -192,9 +238,9 @@ int main(int argc, char *argv[]) {
 		tokenize(input, " ", commandArgs);	
 		
 		// Get the total number of command arguments (stops at NULL or >)
-		int totalCommandArgs = 0;
-		int outputFileIndex = 0;
-		int inputFileIndex = 0;
+		int totalCommandArgs = 0;	// The total arguments for a command before | or < or >
+		int outputFileIndex = 0;	// The index of the tokenized array where the > symbol is (0 if it doesnt exist)
+		int inputFileIndex = 0;		// Same as the outputFileIndex but for the < symbol
 		int i = 0;
 		while (commandArgs[i] != NULL) {
 			if (outputFileIndex == 0 && commandArgs[i][0] == '>')
@@ -269,12 +315,12 @@ int main(int argc, char *argv[]) {
 		} else if (strcmp(commandArgs[0], "exit") == 0) {
 			inShell = 0;	// Exit the loop
 		
-		// If no command was inputted then run an external program
+		// Command: other -> run an external program
 		} else {
 			int success;
 			int runInBackground = 1;//strcmp(commandArgs[totalCommandArgs-1], "&");
 			int backgroundPID;
-			char *outStr = runExternalProgram(commandArgs, runInBackground, &backgroundPID, outputFile, &success);
+			char *outStr = runExternalProgram(commandArgs, runInBackground, &backgroundPID, inputFile, outputFile, &success);
 			if (!success) {
 				if (outputFile == NULL) {
 					printf("%s", outStr);
@@ -301,9 +347,7 @@ int main(int argc, char *argv[]) {
 
 // QUESTIONS FOR LAB
 //
-// when parent process is waiting for child process does it have to check how it exited (normally vs by signal)
-// 
-// ask if we need the -Wextra flag to be clear for full marks
+// ask if we need the -Wextra flag to be clear for full marks (NO DONT HAVE TO WORRY ABOUT IT)
 //
 //
 // HANDLE SIGNALS: you need to handle ctrl+c and ctrl+z
