@@ -62,17 +62,15 @@ char *cd(char **commandArgs) {
 }
 
 char *runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, int pipefd[2]) {
-	printf("pipefd %d %d\n", pipefd[0], pipefd[1]);
-	//return NULL;
+	pid_t pid = fork();
 
-	pid_t pid = fork();	
 	// No process
 	if (pid < 0) {
 		return "dragonshell: fork() failed\n";
-	}
-
+	
+	
 	// Child process
-	else if (pid == 0) {
+	} else if (pid == 0) {
 		// Input from file to command
 		if (inputFile != NULL) {
 			int fd = open(inputFile, O_RDONLY);
@@ -107,13 +105,20 @@ char *runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, 
 				dup2(pipefd[0], STDIN_FILENO);
 			}
 		}
-		
+		/*int i = 0;
+		while (commandArgs[i] != NULL) {
+			printf("%s\n", commandArgs[i]);
+			i++;
+		}*/
+		//printf("asdfasfd11111111111");
 		// Execute the external program
 		if (execve(commandArgs[0], commandArgs, NULL) == -1) {
+			//printf("asdfasdf");
 			_exit(1);
 			return "dragonshell: Command not found\n";
 		}
 	
+
 	// Parent process
 	} else if (pid > 0) {
 		// Run the child process in the background
@@ -151,13 +156,7 @@ int outputToFile(char *message, char *file) {
 
 int main(int argc, char *argv[]) {
 	//welcomeBanner();
-	
-	//int messageLength = MAX_INPUT;
-	//printf("%s\n", readFromFile(argv[1], &messageLength));
-
-	//return 0;
-
-
+		
 	int inShell = 1;
 	while (inShell) {
 		printf("dragonshell > ");
@@ -183,8 +182,12 @@ int main(int argc, char *argv[]) {
 		int outputFileIndex = 0;	// The index of the tokenized array where the > symbol is (0 if it doesnt exist)
 		int inputFileIndex = 0;		// Same as the outputFileIndex but for the < symbol
 		int pipeIndex = 0;		// Same as the outputFileIndex but for the | symbol to pipe to another command
+		int totalPipedCommandArgs = 0;	// Calculate the total arguments that occur after the | symbol
 		int i = 0;
 		while (commandArgs[i] != NULL) {
+			if (pipeIndex > 0)
+				totalPipedCommandArgs++;
+
 			if (outputFileIndex == 0 && commandArgs[i][0] == '>') {
 				outputFileIndex = i+1;
 				pipeIndex = -1;		// If outputToFile exists then piping cannot exist so force it to -1 to stop it from searching for the | symbol
@@ -204,7 +207,6 @@ int main(int argc, char *argv[]) {
 			i++;
 		}
 
-
 		// Check if the command is outputted to a file
 		char *outputFile = NULL;
 		if (outputFileIndex > 0) {
@@ -216,17 +218,22 @@ int main(int argc, char *argv[]) {
 			}
 			outputFile = commandArgs[outputFileIndex];
 		}
-
+		
 		// Check if the command is piped to another command
-		char *pipedCommand = NULL;
+		char **pipedCommandArgs;
 		if (pipeIndex > 0) {
-			if (commandArgs[pipeIndex] == NULL) {
+			if (totalPipedCommandArgs == 0) {
 				printf("dragonshell: No pipe command given\n");
 				free(input);
 				free(commandArgs);
 				continue;
 			}
-			pipedCommand = commandArgs[pipeIndex];
+			// Copy the remaining command args after the pipe
+			pipedCommandArgs = (char **)malloc( (totalPipedCommandArgs+1) * sizeof(char *));
+			for (int i = 0; i < totalPipedCommandArgs; i++) {
+				pipedCommandArgs[i] = commandArgs[pipeIndex+i];
+			}
+			pipedCommandArgs[totalPipedCommandArgs] = NULL;	// Set NULL terminator at the end of the argumnets
 		}
 		
 		// Check if the command is taking input from a file
@@ -241,17 +248,18 @@ int main(int argc, char *argv[]) {
 			inputFile = commandArgs[inputFileIndex];
 		}
 
-
 		//Copy the data to a new array exluding the '>', '<', and '|' from the old commandArgs array (and anything after them)
 		if (outputFileIndex > 0 || inputFileIndex > 0 || pipeIndex > 0) {
-			char **tmp_commandArgs = (char **)malloc(totalCommandArgs);
+			char **tmp_commandArgs = (char **)malloc( (totalCommandArgs+1) * sizeof(char *));
 			for (int i = 0; i < totalCommandArgs; i++) {
 				tmp_commandArgs[i] = commandArgs[i];
 			}
+			tmp_commandArgs[totalCommandArgs] = NULL;	// Set Null terminator at the end of the arguments
 			free(commandArgs);
 			commandArgs = tmp_commandArgs;
 		}
-	
+		
+
 		// Command: pwd
 		if (strcmp(commandArgs[0], "pwd") == 0) {
 			char cwd[MAX_PATH];	
@@ -260,7 +268,8 @@ int main(int argc, char *argv[]) {
 				printf("%s\n", cwd);
 			} else {
 				outputToFile(strcat(cwd, "\n"), outputFile);
-			}			
+			}
+
 		// Command: cd
 		} else if (strcmp(commandArgs[0], "cd") == 0) {
 			char *outStr = cd(commandArgs);
@@ -281,54 +290,34 @@ int main(int argc, char *argv[]) {
 			//int runInBackground = 1;//strcmp(commandArgs[totalCommandArgs-1], "&");
 			//int backgroundPID;
 			int pipefd[2] = {-1, -1};
-			if (pipedCommand != NULL)
+			if (totalPipedCommandArgs > 0)
 				pipe(pipefd);
 			// If both are non -1 then this is the flag to direct stdout to pipe
 			char *outStr = runExternalProgram(commandArgs, inputFile, outputFile, pipefd);
 			if (outStr != NULL) {
 				printf("%s", outStr);
-			}
-
-			if (pipedCommand != NULL) {
-				close(pipefd[1]);	// Close the write end
-
-				// If the first command failed then close the pipe and continue the loop
-				if (outStr != NULL) {
+				// If the first command failed close the pipe if it is open
+				if (totalPipedCommandArgs > 0) {
 					close(pipefd[0]);
+					close(pipefd[1]);
 					printf("dragonshell: Pipe closed\n");
-					continue;
 				}
-
+			} else if (totalPipedCommandArgs > 0) {
 				// If write is set to -1 but not read then this is the flag to direct pipe to stdin
-				pipefd[1] = -1;						// Flag the program to direct pipe to stdin
-				char *pipedCommandArgs[2] = {pipedCommand, NULL};	// Pass the piped command as a list of arguments only containing itself and null terminator
-				char *outStr = runExternalProgram(pipedCommandArgs, inputFile, outputFile, pipefd);
+				close(pipefd[1]);	// Close the write end
+				pipefd[1] = -1;		// Flag the program to direct pipe to stdin
+				char *outStr = runExternalProgram(pipedCommandArgs, NULL, NULL, pipefd);
 				close(pipefd[0]);	// Close the read end
-				if (outStr != NULL) {
+				if (outStr != NULL)
 					printf("%s", outStr);
-				}
 			}
-
-
-
-			/*if (!success) {
-				if (outputFile == NULL) {
-					printf("%s", outStr);
-				} else {
-					outputToFile(outStr, outputFile);
-				}
-			} else if (pipedCommand != NULL) {
-				pipefd[0] = -1;	// Mark as stdin for the next command
-				char *outStr = runExternalProgram(&pipedCommand, 1, NULL, NULL, NULL, &pipefd, &success);
-				if (!success) {
-					printf("%s", outStr);
-				}
-			}*/
-			
 		}
-
+		
+		
 		free(input);
 		free(commandArgs);
+		if (totalPipedCommandArgs > 0)
+			free(pipedCommandArgs);	
 	}
 	
 	return 0;
