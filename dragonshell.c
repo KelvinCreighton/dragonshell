@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <signal.h>
 
 #define MAX_INPUT 1024
 #define MAX_PATH 1024
@@ -39,35 +40,13 @@ void tokenize(char* str, const char* delim, char ** argv){
 	printf("%s", welcomeArt);
 }*/
 
-char *cd(char **commandArgs) {
-	// Check if the user inputted a second argument for the new path, return if the didn't
-	if (commandArgs[1] == NULL) {
-		return "dragonshell: No directory given\n";
-	}
-
-	// Get the current working directory
-	char cwd[MAX_PATH];
-	getcwd(cwd, MAX_PATH);	
-	// Combine the current working directory with the users second argument as one full newPath
-	char newPath[MAX_PATH];
-	char *separator = "/";
-	snprintf(newPath, sizeof(newPath), "%s%s%s", cwd, separator, commandArgs[1]);	
-	
-	// Move into that directory and return an error if it was unsuccessful
-	if (chdir(newPath) == -1) {
-		return "dragonshell: No such file or directory\n";
-	}
-	// Return NULL if there was no issue
-	return NULL;
-}
-
-char *runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, int pipefd[2]) {
+int runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, int pipefd[2], int runInBackground, int *backgroundPID) {
 	pid_t pid = fork();
 
 	// No process
 	if (pid < 0) {
-		return "dragonshell: fork() failed\n";
-	
+		perror("dragonshell");
+		_exit(1);	
 	
 	// Child process
 	} else if (pid == 0) {
@@ -75,8 +54,8 @@ char *runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, 
 		if (inputFile != NULL) {
 			int fd = open(inputFile, O_RDONLY);
 			if (fd == -1) {
+				perror("dragonshell");
 				_exit(1);
-				return "dragonshell: Error in opening file\n";
 			}
 			// Redirect fd from the input file to stdin
 			dup2(fd, STDIN_FILENO);
@@ -87,8 +66,8 @@ char *runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, 
 		if (outputFile != NULL) {
 			int fd = open(outputFile, O_WRONLY | O_CREAT | O_TRUNC, 00644);
 			if (fd == -1) {
+				perror("dragonshell");
 				_exit(1);
-				return "dragonshell: Error in opening file\n";
 			}
 			// Redirect stdout to fd of the output file
 			dup2(fd, STDOUT_FILENO);
@@ -105,36 +84,28 @@ char *runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, 
 				dup2(pipefd[0], STDIN_FILENO);
 			}
 		}
-		/*int i = 0;
-		while (commandArgs[i] != NULL) {
-			printf("%s\n", commandArgs[i]);
-			i++;
-		}*/
-		//printf("asdfasfd11111111111");
+			
 		// Execute the external program
 		if (execve(commandArgs[0], commandArgs, NULL) == -1) {
-			//printf("asdfasdf");
+			perror("dragonshell");
 			_exit(1);
-			return "dragonshell: Command not found\n";
 		}
 	
 
 	// Parent process
 	} else if (pid > 0) {
 		// Run the child process in the background
-		/*if (asBackground == 0) {
-			*success = 1;
-			char buffer[256];
-			sprintf(buffer, "dragonshell: running process in background with PID %d\n", pid);
-			return strdup(buffer);
-		}*/
-
-		// If not running as background process, Wait for the child process to finish
-		int status;
-		waitpid(pid, &status, 0);
+		if (runInBackground) {
+			*backgroundPID = pid;
+			printf("PID %d is sent to background\n", pid);
+		
+		// If not running as background process, wait for the child process to finish
+		} else {
+			int status;
+			waitpid(pid, &status, 0);
+		}
 	}
-
-	return NULL;
+	return 0;
 }
 
 int outputToFile(char *message, char *file) {
@@ -154,17 +125,38 @@ int outputToFile(char *message, char *file) {
 	return 0;
 }
 
+void signal_handler(int signum) {
+	printf("\n");
+}
+
+
 int main(int argc, char *argv[]) {
-	//welcomeBanner();
-		
+	struct sigaction sa_int, sa_tstp;
+	// Handle sigint
+	sa_int.sa_flags = 0;
+	sigemptyset(&sa_int.sa_mask);
+	sa_int.sa_handler = signal_handler;
+	sigaction(SIGINT, &sa_int, NULL);
+	// Handle sigtstp
+	sa_tstp.sa_flags = 0;
+	sigemptyset(&sa_tstp.sa_mask);
+	sa_tstp.sa_handler = signal_handler;
+	sigaction(SIGTSTP, &sa_tstp, NULL);
+
+	// Track the background process (-1 means no current background process)
+	int backgroundPID = -1;
+
 	int inShell = 1;
 	while (inShell) {
 		printf("dragonshell > ");
 		
 		// Read user command
 		char *input = (char *)malloc(MAX_INPUT);
-		fgets(input, MAX_INPUT, stdin);
-		
+		if (fgets(input, MAX_INPUT, stdin) == NULL) {
+			free(input);
+			continue;
+		}
+			
 		// Skip if the user didn't input anything
 		if (input[1] == '\0') {
 			free(input);
@@ -183,27 +175,38 @@ int main(int argc, char *argv[]) {
 		int inputFileIndex = 0;		// Same as the outputFileIndex but for the < symbol
 		int pipeIndex = 0;		// Same as the outputFileIndex but for the | symbol to pipe to another command
 		int totalPipedCommandArgs = 0;	// Calculate the total arguments that occur after the | symbol
+		int runInBackgroundIndex = 0;	// Where the '&' appears in the tokenized array
 		int i = 0;
 		while (commandArgs[i] != NULL) {
+			// Start counting the arguments after the '|' symbol
 			if (pipeIndex > 0)
 				totalPipedCommandArgs++;
 
 			if (outputFileIndex == 0 && commandArgs[i][0] == '>') {
 				outputFileIndex = i+1;
 				pipeIndex = -1;		// If outputToFile exists then piping cannot exist so force it to -1 to stop it from searching for the | symbol
+				runInBackgroundIndex = -1;
 			}
 			if (pipeIndex == 0 && commandArgs[i][0] == '|') {
 				pipeIndex = i+1;
 				outputFileIndex = -1;
+				runInBackgroundIndex = -1;
 				// The input file cannot be after the pipe so set this to -1 to stop searching for the < symbol
 				if (inputFileIndex == 0)
 					inputFileIndex = -1;
 			}
-			if (inputFileIndex == 0 && commandArgs[i][0] == '<')
+			if (inputFileIndex == 0 && commandArgs[i][0] == '<') {
 				inputFileIndex = i+1;
+			}
+			if (runInBackgroundIndex == 0 && commandArgs[i][0] == '&') {
+				runInBackgroundIndex = i+1;
+				outputFileIndex = -1;
+				pipeIndex = -1;
+			}
 			
-			if (outputFileIndex == 0 && inputFileIndex == 0 && pipeIndex == 0)
+			if (outputFileIndex == 0 && inputFileIndex == 0 && pipeIndex == 0 && runInBackgroundIndex == 0) {
 				totalCommandArgs++;
+			}
 			i++;
 		}
 
@@ -249,7 +252,7 @@ int main(int argc, char *argv[]) {
 		}
 
 		//Copy the data to a new array exluding the '>', '<', and '|' from the old commandArgs array (and anything after them)
-		if (outputFileIndex > 0 || inputFileIndex > 0 || pipeIndex > 0) {
+		if (outputFileIndex > 0 || inputFileIndex > 0 || pipeIndex > 0 || runInBackgroundIndex > 0) {
 			char **tmp_commandArgs = (char **)malloc( (totalCommandArgs+1) * sizeof(char *));
 			for (int i = 0; i < totalCommandArgs; i++) {
 				tmp_commandArgs[i] = commandArgs[i];
@@ -259,8 +262,9 @@ int main(int argc, char *argv[]) {
 			commandArgs = tmp_commandArgs;
 		}
 		
-
+		// ------------
 		// Command: pwd
+		// ------------
 		if (strcmp(commandArgs[0], "pwd") == 0) {
 			char cwd[MAX_PATH];	
 			getcwd(cwd, MAX_PATH);
@@ -270,46 +274,55 @@ int main(int argc, char *argv[]) {
 				outputToFile(strcat(cwd, "\n"), outputFile);
 			}
 
+		// -----------
 		// Command: cd
+		// -----------
 		} else if (strcmp(commandArgs[0], "cd") == 0) {
-			char *outStr = cd(commandArgs);
-			if (outStr != NULL) {
-				if (outputFile == NULL) {
-					printf("%s", outStr);
-				} else {
-					outputToFile(outStr, outputFile);
+			// Check if the user inputted a second argument for the new path
+			if (commandArgs[1] == NULL) {
+				printf("dragonshell: No directory given\n");
+			} else {
+				// Get the current working directory
+				char cwd[MAX_PATH];
+				getcwd(cwd, MAX_PATH);	
+				// Combine the current working directory with the users second argument as one full newPath
+				char newPath[MAX_PATH*2+1];
+				char *separator = "/";
+				snprintf(newPath, sizeof(newPath), "%s%s%s", cwd, separator, commandArgs[1]);	
+				
+				// Move into that directory and give an error if it was unsuccessful
+				if (chdir(newPath) == -1) {
+					perror("dragonshell");
 				}
 			}
 
+		// -------------
 		// Command: exit
+		// -------------
 		} else if (strcmp(commandArgs[0], "exit") == 0) {
+			if (backgroundPID > 0)
+				kill(backgroundPID, SIGTERM); 
 			inShell = 0;	// Exit the loop
 		
+		// -----------------------------------------
 		// Command: other -> run an external program
+		// -----------------------------------------
 		} else {
-			//int runInBackground = 1;//strcmp(commandArgs[totalCommandArgs-1], "&");
-			//int backgroundPID;
 			int pipefd[2] = {-1, -1};
 			if (totalPipedCommandArgs > 0)
 				pipe(pipefd);
 			// If both are non -1 then this is the flag to direct stdout to pipe
-			char *outStr = runExternalProgram(commandArgs, inputFile, outputFile, pipefd);
-			if (outStr != NULL) {
-				printf("%s", outStr);
-				// If the first command failed close the pipe if it is open
-				if (totalPipedCommandArgs > 0) {
-					close(pipefd[0]);
-					close(pipefd[1]);
-					printf("dragonshell: Pipe closed\n");
-				}
-			} else if (totalPipedCommandArgs > 0) {
-				// If write is set to -1 but not read then this is the flag to direct pipe to stdin
+			int executeStatus = runExternalProgram(commandArgs, inputFile, outputFile, pipefd, runInBackgroundIndex > 0, &backgroundPID);
+			
+			if (totalPipedCommandArgs > 0) {
 				close(pipefd[1]);	// Close the write end
-				pipefd[1] = -1;		// Flag the program to direct pipe to stdin
-				char *outStr = runExternalProgram(pipedCommandArgs, NULL, NULL, pipefd);
+				// If the first command executed properly then continue with the next
+				if (executeStatus == 0) {
+					pipefd[1] = -1;	// Flag the program to direct pipe to stdin
+					// The piped command should only have the command arguments and the pipefd. There is no input file, no outputfile, and no running in the background
+					runExternalProgram(pipedCommandArgs, NULL, NULL, pipefd, 0, NULL);
+				}
 				close(pipefd[0]);	// Close the read end
-				if (outStr != NULL)
-					printf("%s", outStr);
 			}
 		}
 		
@@ -322,8 +335,6 @@ int main(int argc, char *argv[]) {
 	
 	return 0;
 }
-
-
 
 
 
