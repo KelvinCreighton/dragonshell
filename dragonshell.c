@@ -10,6 +10,10 @@
 #define MAX_INPUT 1024
 #define MAX_PATH 1024
 
+// Track the background process (-1 means no current background process)
+int backgroundPID = -1;
+
+
 /**
  * @brief Tokenize a C string 
  * 
@@ -102,7 +106,9 @@ int runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, in
 		// If not running as background process, wait for the child process to finish
 		} else {
 			int status;
-			waitpid(pid, &status, 0);
+			waitpid(pid, &status, 0)
+			return WIFEXITED(status) && WEXITSTATUS(status) != 0;
+			
 		}
 	}
 	return 0;
@@ -129,9 +135,13 @@ void signal_handler(int signum) {
 	printf("\n");
 }
 
+void child_handler(int signum) {
+	backgroundPID = -1;		
+}
+
 
 int main(int argc, char *argv[]) {
-	struct sigaction sa_int, sa_tstp;
+	struct sigaction sa_int, sa_tstp, sa_child;
 	// Handle sigint
 	sa_int.sa_flags = 0;
 	sigemptyset(&sa_int.sa_mask);
@@ -142,9 +152,12 @@ int main(int argc, char *argv[]) {
 	sigemptyset(&sa_tstp.sa_mask);
 	sa_tstp.sa_handler = signal_handler;
 	sigaction(SIGTSTP, &sa_tstp, NULL);
+	// Handle child death signal
+	sa_child.sa_flags = SA_RESTART | SA_NOCLDSTOP;
+	sigemptyset(&sa_child.sa_mask);
+	sa_child.sa_handler = child_handler;
+	sigaction(SIGCHLD, &sa_child, NULL);
 
-	// Track the background process (-1 means no current background process)
-	int backgroundPID = -1;
 
 	int inShell = 1;
 	while (inShell) {
