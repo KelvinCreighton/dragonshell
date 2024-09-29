@@ -1,3 +1,11 @@
+/*
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Name : Kelvin Creighton
+# SID : 1695352
+# CCID : kcreight
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+*/
+
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -31,18 +39,6 @@ void tokenize(char* str, const char* delim, char ** argv){
   }
 }
 
-/*void welcomeBanner() {
-	const char *welcomeArt = "\n"
-"
-"                                           .___,                                                               \n"
-" __      __     _                        _          ___                                                    \n"
-" \\ \\    / /___ | | __  ___  _ __   ___  | |_  ___  |   \\  _ _  __ _  __ _  ___  _ _                     \n"
-"  \\ \\/\\/ // -_)| |/ _|/ _ \\| '  \\ / -_) |  _|/ _ \\ | |) || '_|/ _` |/ _` |/ _ \\| ' \\               \n"
-"   \\_/\\_/ \\___||_|\\__|\\___/|_|_|_|\\___|  \\__|\\___/ |___/ |_|  \\__,_|\\__, |\\___/|_||_|           \n"
-"                                                                    |___/                                  \n";
-
-	printf("%s", welcomeArt);
-}*/
 
 int runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, int pipefd[2], int runInBackground, int *backgroundPID) {
 	pid_t pid = fork();
@@ -106,7 +102,7 @@ int runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, in
 		// If not running as background process, wait for the child process to finish
 		} else {
 			int status;
-			waitpid(pid, &status, 0)
+			waitpid(pid, &status, 0);
 			return WIFEXITED(status) && WEXITSTATUS(status) != 0;
 			
 		}

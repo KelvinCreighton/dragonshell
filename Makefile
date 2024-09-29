@@ -6,7 +6,6 @@ $(TARGET): dragonshell.c
 	$(CC) $(CFLAGS) -o $(TARGET) dragonshell.c 
 
 run: $(TARGET)
-	clear
 	./$(TARGET)
 
 clean:
