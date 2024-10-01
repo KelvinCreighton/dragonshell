@@ -1,0 +1,80 @@
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Name : Kelvin Creighton
+# SID : 1695352
+# CCID : kcreight
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+
+------------------
+System Calls Used:
+------------------
+
+fork(): To fork the process to create a child process that allows the user to run external programs
+
+execve(): To execute the child process after forking it
+
+_exit(): To exit the child process either with 1 for terminate with error or 0 for terminate without error
+
+waitpid(): To wait for a child process to finish and terminate it preventing a zombie process
+
+open(): To open a file either as readonly or read & write. Note: if the file is open as write and does not exist then it is created first before writing to
+
+close(): To close any open file descriptors from open() or from pipe()
+
+dup2(): To duplicate a file descriptor to allow redirection of stdin or stdout or to any pipes
+
+pipe(): To open a pipe to allow for command piping from stdout of one command to stdin of the next
+
+times(): To count the total user and system times from a child process
+
+
+
+---------------
+Design Choices:
+---------------
+- I used fgets with a while loop to continuelly ask the user for commands. I used a variable "inShell" that is set to 1 for looping and is set to 0 when the user types the "exit" command to end the dragonshell program
+
+- I tokenized the input from fgets using the provided tokenize function to separate the input by spaces. This is to record the provided arguments of the users input as an array
+
+- Then a while loop cycles through the array searching for specific indicators of the users request. It searches for '>', '<', '|', '&' symbols to check if the user is requesting to input from a file, output to a file, pipe the output the first command to the next, run the child process in the background. During this search if the '>' is used then it will stop searching for the '|' and '&' because these cannot exist together and shouldn't be handled after the '>' symbol for output file is found. Similarly the '|' stops the search for '>', '&', '<'  and the '&' stops the search for the '>', '|', '<'  symbols since these can not come after it. Note that '<' and '>' are independant and can exist in any orientation and will have the same outcome.
+
+- After this while loop the array for the command arguments is restructered if necessary. Meaning if any of the special characters are found then the command arguments should only count for up to the first found symbol. Additionally if the pipe '|' symbol is used then another set of arguments called the pipe command arguments are created to handle any following command arguments after the '|' symbol.
+
+- Additionally the '>' and '<' symbols check for a following argument to record them as a filename. If no argument for a filename is given then it gives an error and continues with the loop to the next iteration
+
+- After all this the program checks for which type of command the user has requested
+
+- cd and pwd are handled within the if statement checking for strcmp of "cd" and "pwd" and are handled accordingly
+
+- exit checks for any background processes and kills them if they exist, then sets the inShell variable to 0 to request the while loop to stop 
+
+- If none of these commands were requested the shell assumes the user is requesting to run an external process. this functionality is handled by the runExternalProgram function
+
+- In the runExternalProgram function, the program forks to create a child process. if the child process is running the child process checks for any input or output files and redirects its stdin and stdout to and from these files as directed. additionally if the read end of the pipe (pipefd[0]) is NOT -1 then the child is flagged for piping. In this, if the write end of the pipe (pipefd[1]) is also NOT -1 then the child is requested to  redirect its stdout to the write end. this means that the child process is the first command in the pipe. If the write end of the pipe (pipefd[1]) IS -1 then the child is requested to read from the pipe, meaning it redirects its stdin from the read end of the pipe, this means the child is the second command in the pipe. After all this setup the child process is executed using execve(). For the parent process if runInBackground is flagged then it sets the *backgroundPID integer to the pid of the child which is used outside of the function to track which process is running in the background. if the runInBackground flag is not set then the parent process waits for the child process to finish before continuing. Note that the exit status of the child is returned in case the first command of the pipe is faulty it will not try and run the second command using the same function after it.
+
+- Outside of the runExternalProgram function the program first checks if the user has requested to run the process in the background. if they have and there is already a process running in the background then dragonshell will output an error saying it cannot have 2 process running in the background, and will continue with the loop. After this check a pipefd is created with [-1, -1] values to flag the function that no pipe is being used. if a pipe is to be used then the pipe(pipefd) is used to then create the pipe before running the function. once the first iteration of the function is run it will continue with the loop unless a pipe is requested. if there is a piping command the program first checks the success of the first function call to verify it can continue, then sets closes and sets the write end (pipefd[1]) to -1 to flag the next function that the pipe is to be read from and not written to. in this second function call no input or output files are given along with no backgroundPID and the runInBackground flag is set to 0.
+
+- At the end of the program the times() function is called to record the total time of the child process used in the dragonshell and the User time and System time are printed out.
+
+- The ctrl+z SIGTSTP and ctrl+c SIGKILL to handle keyboard interrupts for proceses to stop and kill processes instead of stopping or killing dragonshell process
+
+- Another signal handler was used to track the exit of a child process running in the background. If a child process ends then the global variable backgroundPID is set to -1 and waitPID with WNOHANG is used to terminate it and prevent any zombie process from running
+
+
+--------
+Testing:
+--------
+
+- Various testing c files were used to test specific edge cases of dragonshell. The one I used the most was a program called testproc.c that was a while loop that ran for 3 seconds and ended right after. This along with the "top" command was used to check remaining zombie process after running processes in the background. It was also used to check the time used by child processes
+
+- Used all the testing command given in the assignment with additional personal tests using grep, wc, etc. 
+
+
+
+--------------
+Sources Sited:
+--------------
+
+- Stack overflow and w3Schools for C syntax and C review
+- Linux man 2 pages for system calls
+- Lecture notes and slides for forking and signal handling

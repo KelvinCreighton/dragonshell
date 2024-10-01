@@ -14,6 +14,7 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <sys/times.h>
 
 #define MAX_INPUT 1024
 #define MAX_PATH 1024
@@ -39,8 +40,23 @@ void tokenize(char* str, const char* delim, char ** argv){
   }
 }
 
+void welcomeBanner() {
 
-int runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, int pipefd[2], int runInBackground, int *backgroundPID) {
+printf("\n"
+" _    _      _                            _         ______                               _____ _          _ _ _ \n"
+"| |  | |    | |                          | |        |  _  \\                             /  ___| |        | | | |\n"
+"| |  | | ___| | ___ ___  _ __ ___   ___  | |_ ___   | | | |_ __ __ _  __ _  ___  _ __   \\ `--.| |__   ___| | | |\n"
+"| |/\\| |/ _ \\ |/ __/ _ \\| '_ ` _ \\ / _ \\ | __/ _ \\  | | | | '__/ _` |/ _` |/ _ \\| '_ \\   `--. \\ '_ \\ / _ \\ | | |\n"
+"\\  /\\  /  __/ | (_| (_) | | | | | |  __/ | || (_) | | |/ /| | | (_| | (_| | (_) | | | | /\\__/ / | | |  __/ | |_|\n"
+" \\/  \\/ \\___|_|\\___\\___/|_| |_| |_|\\___|  \\__\\___/  |___/ |_|  \\__,_|\\__, |\\___/|_| |_| \\____/|_| |_|\\___|_|_(_)\n"
+"                                                                      __/ |                                     \n"
+"                                                                     |___/                                      \n"
+);
+
+}
+
+
+int runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, int pipefd[2], int runInBackground, int *backgroundPID, struct tms *t) {
 	pid_t pid = fork();
 
 	// No process
@@ -90,7 +106,7 @@ int runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, in
 			perror("dragonshell");
 			_exit(1);
 		}
-	
+		_exit(0);
 
 	// Parent process
 	} else if (pid > 0) {
@@ -103,6 +119,7 @@ int runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, in
 		} else {
 			int status;
 			waitpid(pid, &status, 0);
+			//times(t);
 			return WIFEXITED(status) && WEXITSTATUS(status) != 0;
 			
 		}
@@ -113,12 +130,12 @@ int runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, in
 int outputToFile(char *message, char *file) {
 	int fd = open(file, O_WRONLY | O_CREAT | O_TRUNC, 00644);
 	if (fd == -1) {
-		printf("dragonshell: Error in opening file\n");
+		perror("dragonshell");
 		return 1;
 	}
 
 	if (write(fd, message, strlen(message)) == -1) {
-		printf("dragonshell: Error writing to file\n");
+		perror("dragonshell\n");
 		close(fd);
 		return 1;
 	}
@@ -132,11 +149,16 @@ void signal_handler(int signum) {
 }
 
 void child_handler(int signum) {
-	backgroundPID = -1;		
+	int status;
+	waitpid(backgroundPID, &status, WNOHANG);
+	backgroundPID = -1;
 }
 
 
 int main(int argc, char *argv[]) {
+	//welcomeBanner();
+
+
 	struct sigaction sa_int, sa_tstp, sa_child;
 	// Handle sigint
 	sa_int.sa_flags = 0;
@@ -148,12 +170,14 @@ int main(int argc, char *argv[]) {
 	sigemptyset(&sa_tstp.sa_mask);
 	sa_tstp.sa_handler = signal_handler;
 	sigaction(SIGTSTP, &sa_tstp, NULL);
-	// Handle child death signal
+	// Handle child finished signal
 	sa_child.sa_flags = SA_RESTART | SA_NOCLDSTOP;
 	sigemptyset(&sa_child.sa_mask);
 	sa_child.sa_handler = child_handler;
 	sigaction(SIGCHLD, &sa_child, NULL);
-
+	
+	// Count the time of child processes
+	struct tms t;
 
 	int inShell = 1;
 	while (inShell) {
@@ -255,7 +279,8 @@ int main(int argc, char *argv[]) {
 				printf("dragonshell: No input file given\n");
 				free(input);
 				free(commandArgs);
-				continue;
+				if (totalPipedCommandArgs > 0)
+					free(pipedCommandArgs);	
 			}
 			inputFile = commandArgs[inputFileIndex];
 		}
@@ -289,13 +314,13 @@ int main(int argc, char *argv[]) {
 		} else if (strcmp(commandArgs[0], "cd") == 0) {
 			// Check if the user inputted a second argument for the new path
 			if (commandArgs[1] == NULL) {
-				printf("dragonshell: No directory given\n");
+				printf("dragonshell: Expected argument to \"cd\"\n");
 			} else {
 				// Get the current working directory
 				char cwd[MAX_PATH];
-				getcwd(cwd, MAX_PATH);	
+				getcwd(cwd, MAX_PATH);
 				// Combine the current working directory with the users second argument as one full newPath
-				char newPath[MAX_PATH*2+1];
+				char newPath[MAX_PATH*2+1];	// MAX_PATH for maximum length from cwd, MAX_PATH for maximum lnegth from commandArgs, +1 for seperator character '/' 
 				char *separator = "/";
 				snprintf(newPath, sizeof(newPath), "%s%s%s", cwd, separator, commandArgs[1]);	
 				
@@ -317,30 +342,39 @@ int main(int argc, char *argv[]) {
 		// Command: other -> run an external program
 		// -----------------------------------------
 		} else {
-			int pipefd[2] = {-1, -1};
-			if (totalPipedCommandArgs > 0)
-				pipe(pipefd);
-			// If both are non -1 then this is the flag to direct stdout to pipe
-			int executeStatus = runExternalProgram(commandArgs, inputFile, outputFile, pipefd, runInBackgroundIndex > 0, &backgroundPID);
-			
-			if (totalPipedCommandArgs > 0) {
-				close(pipefd[1]);	// Close the write end
-				// If the first command executed properly then continue with the next
-				if (executeStatus == 0) {
-					pipefd[1] = -1;	// Flag the program to direct pipe to stdin
-					// The piped command should only have the command arguments and the pipefd. There is no input file, no outputfile, and no running in the background
-					runExternalProgram(pipedCommandArgs, NULL, NULL, pipefd, 0, NULL);
+			if (runInBackgroundIndex > 0 && backgroundPID != -1) {
+				printf("dragonshell: one background process is already running\n");
+			} else {
+				// Record the time at the start of the child process
+
+				int pipefd[2] = {-1, -1};
+				if (totalPipedCommandArgs > 0)
+					pipe(pipefd);
+				// If both are non -1 then this is the flag to direct stdout to pipe
+				int executeStatus = runExternalProgram(commandArgs, inputFile, outputFile, pipefd, runInBackgroundIndex > 0, &backgroundPID, &t);
+				
+				if (totalPipedCommandArgs > 0) {
+					close(pipefd[1]);	// Close the write end
+					// If the first command executed properly then continue with the next
+					if (executeStatus == 0) {
+						pipefd[1] = -1;	// Flag the program to direct pipe to stdin
+						// The piped command should only have the command arguments and the pipefd. There is no input file, no outputfile, and no running in the background
+						runExternalProgram(pipedCommandArgs, NULL, NULL, pipefd, 0, NULL, &t);
+					}
+					close(pipefd[0]);	// Close the read end
 				}
-				close(pipefd[0]);	// Close the read end
 			}
 		}
-		
-		
+				
 		free(input);
 		free(commandArgs);
 		if (totalPipedCommandArgs > 0)
 			free(pipedCommandArgs);	
 	}
+	times(&t);
+	long clockTicksPerSecond = sysconf(_SC_CLK_TCK);
+	printf("User time: %lf\n", (double)t.tms_cutime/clockTicksPerSecond);
+	printf("Sys time: %lf\n", (double)t.tms_cstime/clockTicksPerSecond);
 	
 	return 0;
 }
@@ -350,15 +384,8 @@ int main(int argc, char *argv[]) {
 
 
 
-
-// QUESTIONS FOR LAB
+// TO DO
 //
-// ask if we need the -Wextra flag to be clear for full marks (NO DONT HAVE TO WORRY ABOUT IT)
+// ask about the rand command
 //
-//
-// HANDLE SIGNALS: you need to handle ctrl+c and ctrl+z
-//
-//
-// make background procesess only a total of 1
-//
-// do we have to check for both input and output ( ie.  <  and  >  )
+// check memory leaks
