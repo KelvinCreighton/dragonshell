@@ -56,12 +56,14 @@ printf("\n"
 }
 
 
-int runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, int pipefd[2], int runInBackground, int *backgroundPID) {
+int runExternalProgram(char *input, char **commandArgs, char *inputFile, char *outputFile, int pipefd[2], int runInBackground, int *backgroundPID) {
 	pid_t pid = fork();
 
 	// No process
 	if (pid < 0) {
 		perror("dragonshell");
+		free(commandArgs);
+		free(input);
 		_exit(1);	
 	
 	// Child process
@@ -71,6 +73,8 @@ int runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, in
 			int fd = open(inputFile, O_RDONLY);
 			if (fd == -1) {
 				perror("dragonshell");
+				free(commandArgs);
+				free(input);
 				_exit(1);
 			}
 			// Redirect fd from the input file to stdin
@@ -83,6 +87,8 @@ int runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, in
 			int fd = open(outputFile, O_WRONLY | O_CREAT | O_TRUNC, 00644);
 			if (fd == -1) {
 				perror("dragonshell");
+				free(commandArgs);
+				free(input);
 				_exit(1);
 			}
 			// Redirect stdout to fd of the output file
@@ -95,19 +101,23 @@ int runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, in
 			// If the write end is also not -1 then direct stdout to the write end
 			if (pipefd[1] != -1) {
 				dup2(pipefd[1], STDOUT_FILENO);
+				close(pipefd[1]);
 			// If the write end is -1 then direct the read end to stdin
 			} else {
 				dup2(pipefd[0], STDIN_FILENO);
 			}
+			close(pipefd[0]);
 		}
 			
 		// Execute the external program
 		if (execve(commandArgs[0], commandArgs, NULL) == -1) {
 			perror("dragonshell");
 			free(commandArgs);
+			free(input);
 			_exit(1);
 		}
 		free(commandArgs);
+		free(input);
 		_exit(0);
 
 	// Parent process
@@ -213,7 +223,6 @@ int main(int argc, char *argv[]) {
 		int runInBackgroundIndex = 0;	// Where the '&' appears in the tokenized array
 		int i = 0;
 		while (commandArgs[i] != NULL) {
-			commandArgs[i] = strdup(commandArgs[i]); // Dup the tokenized string to disconnect it from the original input string
 			// Start counting the arguments after the '|' symbol
 			if (pipeIndex > 0)
 				totalPipedCommandArgs++;
@@ -245,59 +254,43 @@ int main(int argc, char *argv[]) {
 			}
 			i++;
 		}
-		
-		// Free the original input string to not worry about it later
-		free(input);
+		// Set the end of the arguments with null terminator
+		commandArgs[totalCommandArgs] = NULL;
 
-		// Check if the command is outputted to a file
+		// Check if a command is given after the pipe character
+		if (pipeIndex > 0) {
+			if (totalPipedCommandArgs == 0) {
+				printf("dragonshell: No pipe command given\n");
+				free(commandArgs);
+				free(input);
+				continue;
+			}
+		}
+
+		// Get the output filename, throw an error if it doesn't exist
 		char *outputFile = NULL;
 		if (outputFileIndex > 0) {
 			if (commandArgs[outputFileIndex] == NULL) {
 				printf("dragonshell: No output file given\n");
 				free(commandArgs);
+				free(input);
 				continue;
 			}
 			outputFile = commandArgs[outputFileIndex];
-		}
+		}	
 		
-		// Check if the command is piped to another command
-		char **pipedCommandArgs;
-		if (pipeIndex > 0) {
-			if (totalPipedCommandArgs == 0) {
-				printf("dragonshell: No pipe command given\n");
-				free(commandArgs);
-				continue;
-			}
-			// Copy the remaining command args after the pipe
-			pipedCommandArgs = (char **)malloc( (totalPipedCommandArgs+1) * sizeof(char *));
-			for (int i = 0; i < totalPipedCommandArgs; i++) {
-				pipedCommandArgs[i] = commandArgs[pipeIndex+i];
-			}
-			pipedCommandArgs[totalPipedCommandArgs] = NULL;	// Set NULL terminator at the end of the argumnets
-		}
-		
-		// Check if the command is taking input from a file
+		// Get the input filename, throw an error if it doesn't exist
 		char *inputFile = NULL;
 		if (inputFileIndex > 0) {
 			if (commandArgs[inputFileIndex] == NULL) {
 				printf("dragonshell: No input file given\n");
 				free(commandArgs);
-				if (totalPipedCommandArgs > 0)
-					free(pipedCommandArgs);	
+				free(input);
+				continue;
 			}
 			inputFile = commandArgs[inputFileIndex];
 		}
 
-		//Copy the data to a new array exluding the '>', '<', and '|' from the old commandArgs array (and anything after them)
-		if (outputFileIndex > 0 || inputFileIndex > 0 || pipeIndex > 0 || runInBackgroundIndex > 0) {
-			char **tmp_commandArgs = (char **)malloc( (totalCommandArgs+1) * sizeof(char *));
-			for (int i = 0; i < totalCommandArgs; i++) {
-				tmp_commandArgs[i] = commandArgs[i];
-			}
-			tmp_commandArgs[totalCommandArgs] = NULL;	// Set Null terminator at the end of the arguments
-			free(commandArgs);
-			commandArgs = tmp_commandArgs;
-		}
 		
 		// ------------
 		// Command: pwd
@@ -352,25 +345,28 @@ int main(int argc, char *argv[]) {
 				if (totalPipedCommandArgs > 0)
 					pipe(pipefd);
 				// If both are non -1 then this is the flag to direct stdout to pipe
-				int executeStatus = runExternalProgram(commandArgs, inputFile, outputFile, pipefd, runInBackgroundIndex > 0, &backgroundPID);
+				int executeStatus = runExternalProgram(input, commandArgs, inputFile, outputFile, pipefd, runInBackgroundIndex > 0, &backgroundPID);
 				
 				if (totalPipedCommandArgs > 0) {
-					// Transfer pipedCommandArgs to commandArgs to avoid memory leaks
-					free(commandArgs);
-					commandArgs = pipedCommandArgs;
+					// Copy the remaining command args after the pipe to the beginning of the commandArgs array
+					for (int i = 0; i < totalPipedCommandArgs; i++) {
+						commandArgs[i] = commandArgs[pipeIndex+i];
+					}
+					// Set NULL terminator at the end of the argumnets
+					commandArgs[totalPipedCommandArgs] = NULL;
 					close(pipefd[1]);	// Close the write end
 					// If the first command executed properly then continue with the next
 					if (executeStatus == 0) {
 						pipefd[1] = -1;	// Flag the program to direct pipe to stdin
 						// The piped command should only have the command arguments and the pipefd. There is no input file, no outputfile, and no running in the background
-						runExternalProgram(commandArgs, NULL, NULL, pipefd, 0, NULL);
+						runExternalProgram(input, commandArgs, NULL, NULL, pipefd, 0, NULL);
 					}
 					close(pipefd[0]);	// Close the read end
 				}
 			}
 		}
-				
 		free(commandArgs);
+		free(input);
 	}
 	times(&t);
 	long clockTicksPerSecond = sysconf(_SC_CLK_TCK);
@@ -386,5 +382,3 @@ int main(int argc, char *argv[]) {
 
 
 // TO DO
-//
-// check memory leaks
