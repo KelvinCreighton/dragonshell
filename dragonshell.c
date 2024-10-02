@@ -230,7 +230,6 @@ int main(int argc, char *argv[]) {
 			if (outputFileIndex == 0 && commandArgs[i][0] == '>') {
 				outputFileIndex = i+1;
 				pipeIndex = -1;		// If outputToFile exists then piping cannot exist so force it to -1 to stop it from searching for the | symbol
-				runInBackgroundIndex = -1;
 			}
 			if (pipeIndex == 0 && commandArgs[i][0] == '|') {
 				pipeIndex = i+1;
@@ -245,7 +244,6 @@ int main(int argc, char *argv[]) {
 			}
 			if (runInBackgroundIndex == 0 && commandArgs[i][0] == '&') {
 				runInBackgroundIndex = i+1;
-				outputFileIndex = -1;
 				pipeIndex = -1;
 			}
 			
@@ -347,6 +345,7 @@ int main(int argc, char *argv[]) {
 				// If both are non -1 then this is the flag to direct stdout to pipe
 				int executeStatus = runExternalProgram(input, commandArgs, inputFile, outputFile, pipefd, runInBackgroundIndex > 0, &backgroundPID);
 				
+				// Run the piped command if it exists	
 				if (totalPipedCommandArgs > 0) {
 					// Copy the remaining command args after the pipe to the beginning of the commandArgs array
 					for (int i = 0; i < totalPipedCommandArgs; i++) {
@@ -358,7 +357,7 @@ int main(int argc, char *argv[]) {
 					// If the first command executed properly then continue with the next
 					if (executeStatus == 0) {
 						pipefd[1] = -1;	// Flag the program to direct pipe to stdin
-						// The piped command should only have the command arguments and the pipefd. There is no input file, no outputfile, and no running in the background
+		/* The piped command should only have the command arguments and the pipefd. There is no input file, no outputfile, and no running in the background */
 						runExternalProgram(input, commandArgs, NULL, NULL, pipefd, 0, NULL);
 					}
 					close(pipefd[0]);	// Close the read end
