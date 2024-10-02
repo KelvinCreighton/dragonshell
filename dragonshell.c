@@ -56,7 +56,7 @@ printf("\n"
 }
 
 
-int runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, int pipefd[2], int runInBackground, int *backgroundPID, struct tms *t) {
+int runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, int pipefd[2], int runInBackground, int *backgroundPID) {
 	pid_t pid = fork();
 
 	// No process
@@ -104,8 +104,10 @@ int runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, in
 		// Execute the external program
 		if (execve(commandArgs[0], commandArgs, NULL) == -1) {
 			perror("dragonshell");
+			free(commandArgs);
 			_exit(1);
 		}
+		free(commandArgs);
 		_exit(0);
 
 	// Parent process
@@ -119,7 +121,6 @@ int runExternalProgram(char **commandArgs, char *inputFile, char *outputFile, in
 		} else {
 			int status;
 			waitpid(pid, &status, 0);
-			//times(t);
 			return WIFEXITED(status) && WEXITSTATUS(status) != 0;
 			
 		}
@@ -200,7 +201,8 @@ int main(int argc, char *argv[]) {
 		
 		// Split the command separated by spaces
 		char **commandArgs = (char **)calloc(MAX_INPUT, sizeof(char *));
-		tokenize(input, " ", commandArgs);	
+		tokenize(input, " ", commandArgs);
+
 		
 		// Get the total number of command arguments (stops at NULL or >)
 		int totalCommandArgs = 0;	// The total arguments for a command before | or < or >
@@ -211,6 +213,7 @@ int main(int argc, char *argv[]) {
 		int runInBackgroundIndex = 0;	// Where the '&' appears in the tokenized array
 		int i = 0;
 		while (commandArgs[i] != NULL) {
+			commandArgs[i] = strdup(commandArgs[i]); // Dup the tokenized string to disconnect it from the original input string
 			// Start counting the arguments after the '|' symbol
 			if (pipeIndex > 0)
 				totalPipedCommandArgs++;
@@ -242,13 +245,15 @@ int main(int argc, char *argv[]) {
 			}
 			i++;
 		}
+		
+		// Free the original input string to not worry about it later
+		free(input);
 
 		// Check if the command is outputted to a file
 		char *outputFile = NULL;
 		if (outputFileIndex > 0) {
 			if (commandArgs[outputFileIndex] == NULL) {
 				printf("dragonshell: No output file given\n");
-				free(input);
 				free(commandArgs);
 				continue;
 			}
@@ -260,7 +265,6 @@ int main(int argc, char *argv[]) {
 		if (pipeIndex > 0) {
 			if (totalPipedCommandArgs == 0) {
 				printf("dragonshell: No pipe command given\n");
-				free(input);
 				free(commandArgs);
 				continue;
 			}
@@ -277,7 +281,6 @@ int main(int argc, char *argv[]) {
 		if (inputFileIndex > 0) {
 			if (commandArgs[inputFileIndex] == NULL) {
 				printf("dragonshell: No input file given\n");
-				free(input);
 				free(commandArgs);
 				if (totalPipedCommandArgs > 0)
 					free(pipedCommandArgs);	
@@ -345,31 +348,29 @@ int main(int argc, char *argv[]) {
 			if (runInBackgroundIndex > 0 && backgroundPID != -1) {
 				printf("dragonshell: one background process is already running\n");
 			} else {
-				// Record the time at the start of the child process
-
 				int pipefd[2] = {-1, -1};
 				if (totalPipedCommandArgs > 0)
 					pipe(pipefd);
 				// If both are non -1 then this is the flag to direct stdout to pipe
-				int executeStatus = runExternalProgram(commandArgs, inputFile, outputFile, pipefd, runInBackgroundIndex > 0, &backgroundPID, &t);
+				int executeStatus = runExternalProgram(commandArgs, inputFile, outputFile, pipefd, runInBackgroundIndex > 0, &backgroundPID);
 				
 				if (totalPipedCommandArgs > 0) {
+					// Transfer pipedCommandArgs to commandArgs to avoid memory leaks
+					free(commandArgs);
+					commandArgs = pipedCommandArgs;
 					close(pipefd[1]);	// Close the write end
 					// If the first command executed properly then continue with the next
 					if (executeStatus == 0) {
 						pipefd[1] = -1;	// Flag the program to direct pipe to stdin
 						// The piped command should only have the command arguments and the pipefd. There is no input file, no outputfile, and no running in the background
-						runExternalProgram(pipedCommandArgs, NULL, NULL, pipefd, 0, NULL, &t);
+						runExternalProgram(commandArgs, NULL, NULL, pipefd, 0, NULL);
 					}
 					close(pipefd[0]);	// Close the read end
 				}
 			}
 		}
 				
-		free(input);
 		free(commandArgs);
-		if (totalPipedCommandArgs > 0)
-			free(pipedCommandArgs);	
 	}
 	times(&t);
 	long clockTicksPerSecond = sysconf(_SC_CLK_TCK);
@@ -385,7 +386,5 @@ int main(int argc, char *argv[]) {
 
 
 // TO DO
-//
-// ask about the rand command
 //
 // check memory leaks
