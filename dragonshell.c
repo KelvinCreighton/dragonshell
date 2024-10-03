@@ -223,6 +223,13 @@ int main(int argc, char *argv[]) {
 		int runInBackgroundIndex = 0;	// Where the '&' appears in the tokenized array
 		int i = 0;
 		while (commandArgs[i] != NULL) {
+			// Remove the first and last " or ' if they both exist
+			int argLength = strlen(commandArgs[i]);
+			if ((commandArgs[i][0] == '\"' && commandArgs[i][argLength-1] == '\"') || (commandArgs[i][0] == '\'' && commandArgs[i][argLength-1] == '\'')) {
+				for (int j = 0; j < argLength-2; j++)
+					commandArgs[i][j] = commandArgs[i][j+1];
+				commandArgs[i][argLength-2] = '\0';
+			}
 			// Start counting the arguments after the '|' symbol
 			if (pipeIndex > 0)
 				totalPipedCommandArgs++;
@@ -381,3 +388,7 @@ int main(int argc, char *argv[]) {
 
 
 // TO DO
+//
+// account for total time even when sigtstp is used
+//
+// write about how i tested syscalls in the readme
