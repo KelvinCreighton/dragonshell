@@ -1,9 +1,0 @@
-total 52
--rw-r--r--. 1 jasper jasper   267 Sep 27 14:14 Makefile
--rw-r--r--. 1 jasper jasper   202 Sep 26 21:15 README.md
--rw-r--r--. 1 jasper jasper    51 Sep 26 21:15 asdf
--rwxr-xr-x. 1 jasper jasper 23432 Sep 27 14:15 dragonshell
--rw-r--r--. 1 jasper jasper  9754 Sep 27 14:14 dragonshell.c
--rw-r--r--. 1 jasper jasper    35 Sep 26 21:15 pipetest.txt
--rw-r--r--. 1 jasper jasper     0 Sep 27 15:08 test.txt
-drwxr-xr-x. 1 jasper jasper    32 Sep 26 21:15 testdir

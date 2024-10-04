@@ -36,7 +36,7 @@ Design Choices:
 
 - I tokenized the input from fgets using the provided tokenize function to separate the input by spaces. This is to record the provided arguments of the users input as an array
 
-- Then a while loop cycles through the array searching for specific indicators of the users request. It searches for '>', '<', '|', '&' symbols to check if the user is requesting to input from a file, output to a file, pipe the output the first command to the next, run the child process in the background. During this search if the '>' is used then it will stop searching for the '|' and '&' because these cannot exist together and shouldn't be handled after the '>' symbol for output file is found. Similarly the '|' stops the search for '>', '&', '<'  and the '&' stops the search for the '>', '|', '<'  symbols since these can not come after it. Note that '<' and '>' are independant and can exist in any orientation and will have the same outcome.
+- Then a while loop cycles through the array searching for specific indicators of the users request. It searches for '>', '<', '|', '&' symbols to check if the user is requesting to input from a file, output to a file, pipe the output the first command to the next, run the child process in the background. During this search if the '>' is used then it will stop searching for the '|' because these cannot exist together and shouldn't be handled after the '>' symbol for output file is found. Similarly the '|' stops the search for '>', '&', '<'  and the '&' stops the search for the '|', '<'  symbols since these can not come after it. Note that '<' and '>' are independant and can exist in any orientation and will have the same outcome.
 
 - After this while loop the array for the command arguments is restructered if necessary. Meaning if any of the special characters are found then the command arguments should only count for up to the first found symbol. Additionally if the pipe '|' symbol is used then another set of arguments called the pipe command arguments are created to handle any following command arguments after the '|' symbol.
 
@@ -69,6 +69,13 @@ Testing:
 
 - Used all the testing command given in the assignment with additional personal tests using grep, wc, etc. 
 
+- Used valgrind to check for memory checks
+
+- Ran commnds like /usr/bin/ls > outputfile.txt and /usr/bin/grep "a" < inputfile.txt to check the input and output redirects with the open() and dup2() syscalls (along with the close() syscall)
+
+- Ran /usr/bin/find ./ | /usr/bin/sort to check the piping command to test the pipe() and dup2() syscalls
+
+- Used the "top" command to test the _exit() syscall and verify I didn't leave any zombie proces either from exiting dragon shell or from sigtstp or sigterm
 
 
 --------------
