@@ -172,7 +172,7 @@ void signal_handler(int signum) {
 
 
 int main(int argc, char *argv[]) {
-	//welcomeBanner();
+	welcomeBanner();
 
 	struct rusage usage;
 	getrusage(RUSAGE_CHILDREN, &usage);
@@ -334,7 +334,6 @@ int main(int argc, char *argv[]) {
 		// Command: exit
 		// -------------
 		} else if (strcmp(commandArgs[0], "exit") == 0) {
-			printf("bgpid: %d\n", backgroundPID);
 			if (backgroundPID >= 0)
 				kill(backgroundPID, SIGTERM); 
 			if (suspendedPID >= 0) {
