@@ -60,7 +60,7 @@ printf("\n"
 }
 
 
-int runExternalProgram(char *input, char **commandArgs, char *inputFile, char *outputFile, int pipefd[2], int runInBackground, int *backgroundPID) {
+int runExternalProgram(char *input, char **commandArgs, char *inputFile, char *outputFile, int pipefd[2], int runInBackground) {
 	pid_t pid = fork();
 
 	// No process
@@ -133,7 +133,7 @@ int runExternalProgram(char *input, char **commandArgs, char *inputFile, char *o
 	} else if (pid > 0) {
 		// Run the child process in the background
 		if (runInBackground) {
-			*backgroundPID = pid;
+			backgroundPID = pid;
 			printf("PID %d is sent to background\n", pid);
 		
 		// If not running as background process, wait for the child process to finish
@@ -142,7 +142,6 @@ int runExternalProgram(char *input, char **commandArgs, char *inputFile, char *o
 			int status;
 			waitpid(pid, &status, 0);
 			return WIFEXITED(status) && WEXITSTATUS(status) != 0;
-			
 		}
 	}
 	return 0;
@@ -171,18 +170,14 @@ void signal_handler(int signum) {
 		suspendedPID = currentPID;
 }
 
-void child_handler(int signum) {
-	int status;
-	waitpid(backgroundPID, &status, WNOHANG);
-	backgroundPID = -1;
-}
-
 
 int main(int argc, char *argv[]) {
 	//welcomeBanner();
 
+	struct rusage usage;
+	getrusage(RUSAGE_CHILDREN, &usage);
 
-	struct sigaction sa_int, sa_tstp, sa_child;
+	struct sigaction sa_int, sa_tstp;
 	// Handle sigint
 	sa_int.sa_flags = 0;
 	sigemptyset(&sa_int.sa_mask);
@@ -192,13 +187,7 @@ int main(int argc, char *argv[]) {
 	sa_tstp.sa_flags = 0;
 	sigemptyset(&sa_tstp.sa_mask);
 	sa_tstp.sa_handler = signal_handler;
-	sigaction(SIGTSTP, &sa_tstp, NULL);
-	// Handle child finished signal
-	sa_child.sa_flags = SA_RESTART | SA_NOCLDSTOP;
-	sigemptyset(&sa_child.sa_mask);
-	sa_child.sa_handler = child_handler;
-	sigaction(SIGCHLD, &sa_child, NULL);
-	
+	sigaction(SIGTSTP, &sa_tstp, NULL);	
 
 	int inShell = 1;
 	while (inShell) {
@@ -345,12 +334,15 @@ int main(int argc, char *argv[]) {
 		// Command: exit
 		// -------------
 		} else if (strcmp(commandArgs[0], "exit") == 0) {
+			printf("bgpid: %d\n", backgroundPID);
 			if (backgroundPID >= 0)
 				kill(backgroundPID, SIGTERM); 
 			if (suspendedPID >= 0) {
+				kill(suspendedPID, SIGCONT);
 				kill(suspendedPID, SIGTERM);
-				printf("killed supsended\n");
-}
+				int status;
+				waitpid(suspendedPID, &status, 0);
+			}
 			inShell = 0;	// Exit the loop
 		
 		// -----------------------------------------
@@ -364,7 +356,7 @@ int main(int argc, char *argv[]) {
 				if (totalPipedCommandArgs > 0)
 					pipe(pipefd);
 				// If both are non -1 then this is the flag to direct stdout to pipe
-				int executeStatus = runExternalProgram(input, commandArgs, inputFile, outputFile, pipefd, runInBackgroundIndex > 0, &backgroundPID);
+				int executeStatus = runExternalProgram(input, commandArgs, inputFile, outputFile, pipefd, runInBackgroundIndex > 0);
 				
 				// Run the piped command if it exists	
 				if (totalPipedCommandArgs > 0) {
@@ -379,7 +371,7 @@ int main(int argc, char *argv[]) {
 					if (executeStatus == 0) {
 						pipefd[1] = -1;	// Flag the program to direct pipe to stdin
 		/* The piped command should only have the command arguments and the pipefd. There is no input file, no outputfile, and no running in the background */
-						runExternalProgram(input, commandArgs, NULL, NULL, pipefd, 0, NULL);
+						runExternalProgram(input, commandArgs, NULL, NULL, pipefd, 0);
 					}
 					close(pipefd[0]);	// Close the read end
 				}
@@ -389,7 +381,6 @@ int main(int argc, char *argv[]) {
 		free(input);
 	}
 
-	struct rusage usage;
 	getrusage(RUSAGE_CHILDREN, &usage);
 	printf("User time: %ld.%06ld seconds\n", usage.ru_utime.tv_sec, usage.ru_utime.tv_usec);
 	printf("System time: %ld.%06ld seconds\n", usage.ru_stime.tv_sec, usage.ru_stime.tv_usec); 
@@ -400,12 +391,3 @@ int main(int argc, char *argv[]) {
 
 
 
-
-
-// TO DO
-//
-// account for total time even when sigtstp is used
-//
-//
-// QUESTIONS
-// if sigtstp is used do we have to kill the child process that was paused. can we assume that only one will be paused? should i return to dragonshell after this or should i wait for sigterm or sigcont
