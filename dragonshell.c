@@ -14,13 +14,17 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <signal.h>
-#include <sys/times.h>
+#include <sys/time.h>
+#include <sys/resource.h> 
+
 
 #define MAX_INPUT 1024
 #define MAX_PATH 1024
 
 // Track the background process (-1 means no current background process)
+int currentPID = -1;
 int backgroundPID = -1;
+int suspendedPID = -1;
 
 
 /**
@@ -62,6 +66,7 @@ int runExternalProgram(char *input, char **commandArgs, char *inputFile, char *o
 	// No process
 	if (pid < 0) {
 		perror("dragonshell");
+		currentPID = -1;
 		free(commandArgs);
 		free(input);
 		_exit(1);	
@@ -72,7 +77,8 @@ int runExternalProgram(char *input, char **commandArgs, char *inputFile, char *o
 		if (inputFile != NULL) {
 			int fd = open(inputFile, O_RDONLY);
 			if (fd == -1) {
-				perror("dragonshell");
+				perror("dragonshell");		
+				currentPID = -1;
 				free(commandArgs);
 				free(input);
 				_exit(1);
@@ -87,6 +93,7 @@ int runExternalProgram(char *input, char **commandArgs, char *inputFile, char *o
 			int fd = open(outputFile, O_WRONLY | O_CREAT | O_TRUNC, 00644);
 			if (fd == -1) {
 				perror("dragonshell");
+				currentPID = -1;
 				free(commandArgs);
 				free(input);
 				_exit(1);
@@ -108,14 +115,16 @@ int runExternalProgram(char *input, char **commandArgs, char *inputFile, char *o
 			}
 			close(pipefd[0]);
 		}
-			
+		
 		// Execute the external program
 		if (execve(commandArgs[0], commandArgs, NULL) == -1) {
 			perror("dragonshell");
+			currentPID = -1;
 			free(commandArgs);
 			free(input);
 			_exit(1);
 		}
+		currentPID = -1;
 		free(commandArgs);
 		free(input);
 		_exit(0);
@@ -129,6 +138,7 @@ int runExternalProgram(char *input, char **commandArgs, char *inputFile, char *o
 		
 		// If not running as background process, wait for the child process to finish
 		} else {
+			currentPID = pid;
 			int status;
 			waitpid(pid, &status, 0);
 			return WIFEXITED(status) && WEXITSTATUS(status) != 0;
@@ -157,6 +167,8 @@ int outputToFile(char *message, char *file) {
 
 void signal_handler(int signum) {
 	printf("\n");
+	if (signum == SIGTSTP && currentPID >= 0)
+		suspendedPID = currentPID;
 }
 
 void child_handler(int signum) {
@@ -187,8 +199,6 @@ int main(int argc, char *argv[]) {
 	sa_child.sa_handler = child_handler;
 	sigaction(SIGCHLD, &sa_child, NULL);
 	
-	// Count the time of child processes
-	struct tms t;
 
 	int inShell = 1;
 	while (inShell) {
@@ -335,8 +345,12 @@ int main(int argc, char *argv[]) {
 		// Command: exit
 		// -------------
 		} else if (strcmp(commandArgs[0], "exit") == 0) {
-			if (backgroundPID > 0)
+			if (backgroundPID >= 0)
 				kill(backgroundPID, SIGTERM); 
+			if (suspendedPID >= 0) {
+				kill(suspendedPID, SIGTERM);
+				printf("killed supsended\n");
+}
 			inShell = 0;	// Exit the loop
 		
 		// -----------------------------------------
@@ -374,11 +388,12 @@ int main(int argc, char *argv[]) {
 		free(commandArgs);
 		free(input);
 	}
-	times(&t);
-	long clockTicksPerSecond = sysconf(_SC_CLK_TCK);
-	printf("User time: %lf\n", (double)t.tms_cutime/clockTicksPerSecond);
-	printf("Sys time: %lf\n", (double)t.tms_cstime/clockTicksPerSecond);
-	
+
+	struct rusage usage;
+	getrusage(RUSAGE_CHILDREN, &usage);
+	printf("User time: %ld.%06ld seconds\n", usage.ru_utime.tv_sec, usage.ru_utime.tv_usec);
+	printf("System time: %ld.%06ld seconds\n", usage.ru_stime.tv_sec, usage.ru_stime.tv_usec); 
+
 	return 0;
 }
 
@@ -391,4 +406,6 @@ int main(int argc, char *argv[]) {
 //
 // account for total time even when sigtstp is used
 //
-// write about how i tested syscalls in the readme
+//
+// QUESTIONS
+// if sigtstp is used do we have to kill the child process that was paused. can we assume that only one will be paused? should i return to dragonshell after this or should i wait for sigterm or sigcont
