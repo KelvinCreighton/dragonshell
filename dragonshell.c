@@ -371,6 +371,8 @@ int main(int argc, char *argv[]) {
 						pipefd[1] = -1;	// Flag the program to direct pipe to stdin
 		/* The piped command should only have the command arguments and the pipefd. There is no input file, no outputfile, and no running in the background */
 						runExternalProgram(input, commandArgs, NULL, NULL, pipefd, 0);
+					} else {
+						printf("dragonshell: Command not found\n");
 					}
 					close(pipefd[0]);	// Close the read end
 				}
