@@ -55,7 +55,7 @@ printf("\n"
 " \\/  \\/ \\___|_|\\___\\___/|_| |_| |_|\\___|  \\__\\___/  |___/ |_|  \\__,_|\\__, |\\___/|_| |_| \\____/|_| |_|\\___|_|_(_)\n"
 "                                                                      __/ |                                     \n"
 "                                                                     |___/                                      \n"
-);
+"\n");
 
 }
 
@@ -228,18 +228,17 @@ int main(int argc, char *argv[]) {
 				for (int j = 0; j < argLength-2; j++)
 					commandArgs[i][j] = commandArgs[i][j+1];
 				commandArgs[i][argLength-2] = '\0';
-			}
-			// Start counting the arguments after the '|' symbol
-			if (pipeIndex > 0)
-				totalPipedCommandArgs++;
+			}	
 
 			if (outputFileIndex == 0 && commandArgs[i][0] == '>') {
 				outputFileIndex = i+1;
-				pipeIndex = -1;		// If outputToFile exists then piping cannot exist so force it to -1 to stop it from searching for the | symbol
 			}
+			// Start counting the arguments after the '|' symbol
+			if (pipeIndex > 0 && outputFileIndex < pipeIndex)
+				totalPipedCommandArgs++;
+
 			if (pipeIndex == 0 && commandArgs[i][0] == '|') {
 				pipeIndex = i+1;
-				outputFileIndex = -1;
 				runInBackgroundIndex = -1;
 				// The input file cannot be after the pipe so set this to -1 to stop searching for the < symbol
 				if (inputFileIndex == 0)
@@ -369,8 +368,8 @@ int main(int argc, char *argv[]) {
 					// If the first command executed properly then continue with the next
 					if (executeStatus == 0) {
 						pipefd[1] = -1;	// Flag the program to direct pipe to stdin
-		/* The piped command should only have the command arguments and the pipefd. There is no input file, no outputfile, and no running in the background */
-						runExternalProgram(input, commandArgs, NULL, NULL, pipefd, 0);
+		/* The piped command should only have the command arguments and the pipefd. There is no input file and no running in the background. outputfile is determined if its after pipe*/
+						runExternalProgram(input, commandArgs, NULL, outputFile, pipefd, 0);
 					} else {
 						printf("dragonshell: Command not found\n");
 					}
