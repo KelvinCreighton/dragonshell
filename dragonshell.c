@@ -118,7 +118,7 @@ int runExternalProgram(char *input, char **commandArgs, char *inputFile, char *o
 		
 		// Execute the external program
 		if (execve(commandArgs[0], commandArgs, NULL) == -1) {
-			perror("dragonshell");
+			printf("dragonshell: Command not found\n");
 			currentPID = -1;
 			free(commandArgs);
 			free(input);
