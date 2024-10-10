@@ -22,10 +22,11 @@ Comment:
 Makefile [ 8/10]
 Comment: -2 for not having 'compile' target
 
-Readme file [ 8/10]
-Comment: -2 for incorrect README file name
+Readme file [ 9/10]
+Comment: -1 for incorrect README file name
 
 Other deductions, e.g. using library functions instead of system call wrappers, warnings, memory issues, incorrect file names, extremely poor code structure, style, or modularity, etc.
 Comment:
 
-Total [96/100]
+Total [97/100]
+Marked by Luke Schultz
